@@ -14,7 +14,7 @@ describe("LootBox", function () {
   before(async () => {
     [deployer, user, ...users] = await ethers.getSigners();
     const LootBoxFactory = await ethers.getContractFactory("LootBox", deployer);
-    lootbox = (await LootBoxFactory.deploy(parseEther("0.1"))) as LootBox;
+    lootbox = (await LootBoxFactory.deploy(parseEther("0.0000001"))) as LootBox;
   });
 
   describe("Setup tiers and blueprints", () => {
@@ -160,14 +160,6 @@ describe("LootBox", function () {
       expect(balanceAfter - balanceBefore).to.equal(BigInt(ticketPrice) * BigInt(amount));
     });
 
-    it("Pop the only ticket we have", async () => {
-      await lootbox.popTicket(deployer.address);
-    });
-
-    it("Pop a ticket we don't have", async () => {
-      await tryCatch(lootbox.popTicket(deployer.address), errTypes.revert);
-    });
-
     it("Buy 2 tickets with insufficient funds", async () => {
       //   const ticketPrice = await lootbox.getTicketPrice();
       const value = 1n; // insufficient
@@ -176,8 +168,8 @@ describe("LootBox", function () {
   });
 
   describe("Looting", () => {
-    it("First, buy 2 tickets and receive change back", async () => {
-      const amount = 2;
+    it("Buy 2 tickets and receive change back", async () => {
+      const amount = 1;
       const ticketPrice = await lootbox.getTicketPrice();
       const value = BigInt(ticketPrice.toString()) * BigInt(amount) + 1n;
 
@@ -190,18 +182,17 @@ describe("LootBox", function () {
       expect(balanceAfter - balanceBefore).to.equal(BigInt(ticketPrice) * BigInt(amount));
     });
 
+    it("Loot valid ticket, but provide illegal seed => fails", async () => {
+      await tryCatch(lootbox.loot("banana", { from: deployer.address }), errTypes.revert);
+    });
+
     it("Loot first ticket", async () => {
-      const tx = await lootbox.loot({ from: deployer.address });
+      const tx = await lootbox.loot("appel", { from: deployer.address });
       await tx.wait();
     });
 
-    it("Loot second ticket", async () => {
-      const tx = await lootbox.loot({ from: deployer.address });
-      await tx.wait();
-    });
-
-    it("Loot third nonexistent ticket => fails", async () => {
-      await tryCatch(lootbox.loot({ from: deployer.address }), errTypes.revert);
+    it("Loot second nonexistent ticket => fails", async () => {
+      await tryCatch(lootbox.loot("appel", { from: deployer.address }), errTypes.revert);
     });
   });
 });

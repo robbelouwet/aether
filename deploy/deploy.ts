@@ -14,7 +14,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const deployedLootbox = await deploy("LootBox", {
     from: deployer,
     log: true,
-    args: [parseEther("0.1")],
+    args: [parseEther("0.0001")],
   });
 
   console.log(`LootBox contract: `, deployedLootbox.address);

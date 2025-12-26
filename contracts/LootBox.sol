@@ -52,21 +52,36 @@ contract LootBox is ERC721 {
      * This returns a random bytes32 hash, this represents the lootbox. The rest of the code
      * is just checking what the user has won.
      */
-    function loot() public {
+    function loot(string memory seed) public {
         bytes32 challenge = popTicket(msg.sender);
 
-        // the combined input to hash. Should be challenge string and latest block hash and timestamp
-        bytes memory input = abi.encodePacked(challenge, blockhash(block.number - 1));
+        ut.Ticket[] memory sender_tickets = _registry[msg.sender];
 
-        // hash of the challenge input
-        bytes32 hashed_challenge = keccak256(input);
+        bytes32 seed_digest = keccak256(abi.encodePacked(seed));
 
-        uint256 int_hash;
-        assembly {
-            int_hash := shr(0, hashed_challenge)
+        bool success = false;
+        for (uint256 i = 0; i < sender_tickets.length; i++) {
+            if (sender_tickets[i].seed_digest == seed_digest) {
+                // the combined input to hash. Should be challenge string and latest block hash and timestamp
+                bytes memory input = abi.encodePacked(challenge, blockhash(block.number - 1));
+
+                // hash of the challenge input
+                bytes32 hashed_challenge = keccak256(input);
+
+                uint256 int_hash;
+                assembly {
+                    int_hash := shr(0, hashed_challenge)
+                }
+
+                mine(int_hash);
+
+                success = true;
+            }
         }
 
-        mine(int_hash);
+        if (!success) {
+            revert("Invalid seed, no ticket found!");
+        }
     }
 
     /**
@@ -137,13 +152,13 @@ contract LootBox is ERC721 {
 
         uint256 remainder = msg.value - (amount * _ticket_price);
 
-        bytes32 seed = keccak256(abi.encodePacked(_seed));
+        bytes32 seed_digest = keccak256(abi.encodePacked(_seed));
         for (uint256 i = 0; i < amount; i++) {
-            _registry[msg.sender].push(ut.Ticket(block.number + 1, seed));
+            _registry[msg.sender].push(ut.Ticket(block.number + 1, seed_digest));
 
-            bytes32 latest_seed = keccak256(abi.encodePacked(seed));
+            bytes32 latest_digest = keccak256(abi.encodePacked(seed_digest));
             assembly {
-                seed := shr(0, latest_seed)
+                seed_digest := shr(0, latest_digest)
             }
         }
 
@@ -156,14 +171,15 @@ contract LootBox is ERC721 {
      * the random seed is calculated (see buyTicket()), then the ticket is removed
      * and the random seed is returned.
      */
-    function popTicket(address adr) public isOwner returns (bytes32 seed) {
+    function popTicket(address adr) internal returns (bytes32 challenge) {
         ut.Ticket[] memory arr = _registry[adr];
 
         require(arr.length > 0 && arr[arr.length - 1].block_number != 0, "address doesn't have any tickets.");
 
         ut.Ticket memory t = arr[arr.length - 1];
 
-        seed = keccak256(abi.encodePacked(t.personal_seed, blockhash(t.block_number)));
+        // The eventual challenge that will be used to calculate the rewards of the lootbox
+        challenge = keccak256(abi.encodePacked(t.seed_digest, blockhash(t.block_number)));
 
         _registry[adr].pop();
     }

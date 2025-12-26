@@ -1,0 +1,145 @@
+So a developer has 2 possibilities:
+- He can add a rarity "tier", A tier consists of a name and a rarity (the odds of rolling this tier. E.g.: rarity 50 means odds of 1 out of 50 for rolling this rarity)
+- Create a Blueprint: a blueprint for the item that can be rolled. This includes: the rarity (odds), name of the blueprint, max supply (how many instances of this blueprint can ever be minted)
+
+
+A user basically has 3 important tasks: 
+- He buys a lootbox. To buy a lootbox, a user provides a random string and how many times he wants to roll the lootbox
+- he then waits for a few blocks to be mined
+- Then he calls mine() in order to "open" the lootbox, see whether he has won and possibe mint an NFT
+
+These are the functions he calls of the smart contract, the contract lives at address 0x1388dfB470B021fC801d43df99F97234eADdA601 on the sepolia test network. 
+buyTicket is the function the user calls to roll a lootbox, he essentially buys a ticket to the lootbox, but doesn't yet "roll it".
+Whenever a user transacts buyTicket, he has to wait for a few blocks to be mined and he can then call mine() to finalize minting the NFT.
+
+/**
+    * Creates a new tier.
+    * @param name The name of the new tier, e.g.: "Exotic"
+    * @param modulo_target Some number smaller than the rarity. Essentialy, the modulo of the challenge against the
+    *                      rarity will be calculated. If it matches this modulo_target, the player has successfully
+    *                      looted this tier.
+    * @param rarity How rare do you want this tier to be? E.g.: 50 will have odds of 1/50 for looting this tier.
+    *               This is not the total odds someone has of looting an exact specific item, this also depends on
+    *               whether or not that item already exists
+    */
+function addTier(string memory name, uint256 modulo_target, uint256 rarity) public isOwner returns (uint256) {
+    require(rarity != 0, "A rarity value for a tier cannot be 0.");
+    require(_tiers[rarity].rarity == 0, "This tier exists.");
+    require(containsInt(_tier_rarities, rarity) == false, "This is already a known rarity value");
+    require(containsString(_tier_names, name) == false, "A tier with this name already exists");
+
+    ut.Tier memory tier;
+    tier.name = name;
+    tier.modulo_target = modulo_target;
+    tier.rarity = rarity;
+
+    _tiers[rarity] = tier;
+    _tier_rarities.push(rarity);
+    _tier_names.push(name);
+
+    return rarity;
+}
+
+/**
+    * Adds a blueprint to the specified tier.
+    *
+    * @param tier_rarity (= tier ID) The tier you want to add this blueprint to.
+    * @param name Name of this blueprint, e.g. "Sword".
+    * @param max_supply The max amount of item ID's that can be generated fom this blueprint.
+    */
+function addBlueprint(uint256 tier_rarity, string memory name, uint256 max_supply) public isOwner {
+    require(_tiers[tier_rarity].rarity != 0, "Adding BluePrint to nonexist, uint supply_buffer_size, ent tier!");
+    require(
+        containsString(_tiers[tier_rarity].blueprint_names, name) == false,
+        "A Blueprint with this name already exists in this tier!"
+    );
+
+    ut.ItemBlueprint memory bp = ut.ItemBlueprint(max_supply, name);
+    _tiers[tier_rarity].blueprint_names.push(name);
+    _tier_blueprints[tier_rarity].push(bp);
+}
+
+/**
+    * Buys a ticket. Whenever a ticket is bought, that ticket grabs block.number+1 and stores it.
+    * Whenever this ticket is popped, the hash of that blocknumber is calculated. This is the actual source of randomness.
+    * It lies in predicting future blockhashes (which is extremely improbable).
+    *
+    * Combine this with a committed seed provided by the user, and neither the user or the miner can mess with the system
+    */
+function buyTicket(string memory _seed, uint256 amount) public payable {
+    require(amount > 0, "specify an amount greater than 0.");
+    if (amount * _ticket_price > msg.value) {
+        revert("Didn't send enough wei");
+    }
+
+    uint256 remainder = msg.value - (amount * _ticket_price);
+
+    bytes32 seed = keccak256(abi.encodePacked(_seed));
+    for (uint256 i = 0; i < amount; i++) {
+        _registry[msg.sender].push(ut.Ticket(block.number + 1, seed));
+
+        bytes32 latest_seed = keccak256(abi.encodePacked(seed));
+        assembly {
+            seed := shr(0, latest_seed)
+        }
+    }
+
+    (bool ok, ) = msg.sender.call{value: remainder}("");
+    require(ok, "ETH transfer failed");
+}
+
+/**
+    * This function is called by loot().
+    * Checks whether the sender has won something.
+    * We first assume the challenge is now a resulted hash that is completely random and no one could've predicted.
+    * Not the user, not the miner.
+    *
+    * This functions is done in 2 steps. First, the challenge is treated as: challenge = *rarity tier*|*random item ID*
+    * 1) First we bit mask the lower half to extract a random item ID
+    * 2) We extract the upper half to obtain a random number, this random number is treated as an element in a finite
+    *    field and if it matches ZERO within the field (specified by the item's blueprint), the lootbox "rolled this
+    *    item successfully) and the NFT is minted
+    *
+    */
+function mine(uint256 challenge) internal {
+    bytes32 hashed_challenge;
+    assembly {
+        hashed_challenge := shr(0, challenge)
+    }
+
+    // detect if we match a tier, and which one
+    uint256 tier_rarity = findPresentTier(hashed_challenge); // returns mask_bits
+    if (tier_rarity == 0) {
+        emit challengeFailed(msg.sender, "Did not crack the challenge with the specified challenge string.");
+        return;
+    }
+
+    // we know the tier, now figure out which blueprint they mined
+    uint256 blueprint_id = findPresentBlueprint(hashed_challenge, tier_rarity);
+
+    // we know which blueprint, now which exact blueprint instance (aka which blueprint instance id) did they mine?
+    uint256 itemID = constructItemID(hashed_challenge, tier_rarity, blueprint_id);
+
+    if (_ownerOf(itemID) != address(0)) {
+        emit challengeFailed(msg.sender, "Mined successfully, but item already exists.");
+        return;
+    }
+
+    _safeMint(msg.sender, itemID);
+
+    // emit an event with all necessary information to validate that this user did in fact mine this itemID
+    // in other words, validate ownership of this user with the token minted and placed in items mapping (see Lootbox.sol)
+    //
+    // you can re-hash the challenge with block hash and derive the blueprint_id, tier_id and blueprint instance id that matches the token
+    emit minedSuccessfully(
+        msg.sender,
+        "appel",
+        block.number,
+        _tiers[tier_rarity].name,
+        _tier_blueprints[_tiers[tier_rarity].rarity][blueprint_id].name,
+        tier_rarity
+    );
+}
+
+
+I want you to adjust the frontend, more specifically the inputs and UX of the user and admin portal, and their necessary hooks to metamask and eventually perform the correct transaction to the aforementioned functions

@@ -25,7 +25,7 @@ library LootboxUtils {
 
     struct Ticket {
         uint256 block_number; // we can only specify a blocknumber of max 256 to request the hash from
-        bytes32 personal_seed;
+        bytes32 seed_digest;
     }
 
     // amount of bits that makes up the default buffer size

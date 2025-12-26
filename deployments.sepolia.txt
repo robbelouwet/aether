@@ -1,0 +1,6 @@
+robbe@robbe-thinkpad:~/Downloads/project-bolt-sb1-bv2ulgu5/fhevm-hardhat-template$ npx hardhat deploy --network sepolia
+Generating typings for: 3 artifacts in dir: types for target: ethers-v6
+Successfully generated 48 typings!
+Compiled 2 Solidity files successfully (evm target: cancun).
+deploying "LootBox" (tx: 0x3bcd41635ab221790daa1460dc91a033f7f9e8e52d7c444ee8536e82e74f74f7)...: deployed at 0x1388dfB470B021fC801d43df99F97234eADdA601 with 2405814 gas
+LootBox contract:  0x1388dfB470B021fC801d43df99F97234eADdA601
