@@ -1,6 +1,6 @@
 import { assert } from "chai";
 
-const PREFIX = "Returned error: VM Exception while processing transaction: ";
+const PREFIX = "VM Exception while processing transaction: ";
 
 export const errTypes = {
   revert: "revert",
