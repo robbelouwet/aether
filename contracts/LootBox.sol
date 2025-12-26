@@ -77,8 +77,9 @@ contract LootBox is ERC721 {
      *
      * This functions is done in 2 steps. First, the challenge is treated as: challenge = *rarity tier*|*random item ID*
      * 1) First we bit mask the lower half to extract a random item ID
-     * 2) We extract the upper half to obtain a random number, this random number is treated as an element in a finite field
-     *    and if it matches ZERO within the field (specified by the item's blueprint), the lootbox "rolled this item successfully) and the NFT is minted
+     * 2) We extract the upper half to obtain a random number, this random number is treated as an element in a finite
+     *    field and if it matches ZERO within the field (specified by the item's blueprint), the lootbox "rolled this
+     *    item successfully) and the NFT is minted
      *
      */
     function mine(uint256 challenge) internal {
@@ -198,7 +199,8 @@ contract LootBox is ERC721 {
             require(r != 0, "Cannot perform modulo 0.");
 
             // Here's where the magic happens:
-            // We now have the specific Tier's finite field size, and this specific tier has a "modulo target", now we see if the challenge c
+            // We now have the specific Tier's finite field size, and this specific tier has a "modulo target",
+            // now we see if the challenge c
             uint256 modulo = b_hash_tier_buffer % r;
             if (modulo == tier.modulo_target) {
                 // if this is the first match, or we match with a tier with higher rarity,
@@ -242,7 +244,8 @@ contract LootBox is ERC721 {
     /**
      * When a tier and blueprint are found in the challenge hash, we can construct an item ID.
      * It is basically a concatenation of the tier rarity, blueprint id, and blueprint's supply identifier.
-     * The blueprint supply identifier is the 3rd and last piece of information we need to extract from the challenge hash.
+     * The blueprint supply identifier is the 3rd and last piece of information we need to extract from the challenge
+     * hash.
      * THe concatenation of these 3 results in a unique ID that represents this specific item.
      * It's also the NFT that will be minted to the sender IF the item ID doesn't already exist.
      */
@@ -277,11 +280,12 @@ contract LootBox is ERC721 {
     /**
      * Creates a new tier.
      * @param name The name of the new tier, e.g.: "Exotic"
-     * @param modulo_target Some number smaller than the rarity. Essentialy, the modulo of the challenge against the rarity
-     *                      will be calculated. If it matches this modulo_target, the player has successfully looted this tier.
+     * @param modulo_target Some number smaller than the rarity. Essentialy, the modulo of the challenge against the
+     *                      rarity will be calculated. If it matches this modulo_target, the player has successfully
+     *                      looted this tier.
      * @param rarity How rare do you want this tier to be? E.g.: 50 will have odds of 1/50 for looting this tier.
-     *               This is not the total odds someone has of looting an exact specific item, this also depends on whether
-     *               or not that item already exists
+     *               This is not the total odds someone has of looting an exact specific item, this also depends on
+     *               whether or not that item already exists
      */
     function addTier(string memory name, uint256 modulo_target, uint256 rarity) public isOwner returns (uint256) {
         require(rarity != 0, "A rarity value for a tier cannot be 0.");

@@ -11,8 +11,9 @@ library LootboxUtils {
         // this should be unique with every tier, acts like an unique ID
         // cannot be 0
         uint256 rarity;
-        // this basically tells how big the buffer should be so that it can hold all the id's of the blueprints of this tier
-        // in other words, 2^n-1 needs to be smaller than ItemBlueprint[].length of this tier, see mapping tier_blueprints
+        // this basically tells how big the buffer should be so that it can hold all the id's of the blueprints of
+        // this tier in other words, 2^n-1 needs to be smaller than ItemBlueprint[].length of this tier, see
+        // mapping tier_blueprints
         string[] blueprint_names;
     }
 
