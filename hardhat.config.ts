@@ -16,6 +16,8 @@ import "./tasks/FHECounter";
 
 const MNEMONIC: string = vars.get("MNEMONIC", "test test test test test test test test test test test junk");
 const INFURA_API_KEY: string = vars.get("INFURA_API_KEY", "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz");
+const ETHERSCAN_API_KEY: string = vars.get("ETHERSCAN_API_KEY", "");
+//console.log("ETHERSCAN_API_KEY", ETHERSCAN_API_KEY);
 
 const config: HardhatUserConfig = {
   defaultNetwork: "hardhat",
@@ -24,7 +26,7 @@ const config: HardhatUserConfig = {
   },
   etherscan: {
     apiKey: {
-      sepolia: vars.get("ETHERSCAN_API_KEY", ""),
+      sepolia: ETHERSCAN_API_KEY,
     },
   },
   gasReporter: {
@@ -54,6 +56,7 @@ const config: HardhatUserConfig = {
         path: "m/44'/60'/0'/0/",
         count: 10,
       },
+      gas: 6_000_000,
       chainId: 11155111,
       url: `https://sepolia.infura.io/v3/${INFURA_API_KEY}`,
     },

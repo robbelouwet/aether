@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
+import {FHE, euint128, externalEuint32} from "@fhevm/solidity/lib/FHE.sol";
 
 library LootboxUtils {
     struct Tier {
@@ -19,8 +20,16 @@ library LootboxUtils {
 
     struct ItemBlueprint {
         // How many NFT tokens of this blueprint that should be available
-        uint256 max_supply;
+        uint128 id;
+        uint128 max_supply;
         string name;
+        uint128 rarity;
+    }
+
+    struct Box {
+        euint128 dice;
+        euint128 e_blueprint_id;
+        bool isFinalized;
     }
 
     struct Ticket {
