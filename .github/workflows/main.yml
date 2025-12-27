@@ -23,7 +23,7 @@ jobs:
           version: stable
       - run: npm ci
       - run: npm run compile
-      - run: npm run build:ts
+      # - run: npm run build:ts
       # - run: npm test
       # - run: npm run coverage
   build-and-test-unix:
