@@ -11,14 +11,14 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   //   log: true,
   // });
 
-  const deployedLootbox = await deploy("LootBox", {
+  const deployedAether = await deploy("ERC721Confidential", {
     from: deployer,
     log: true,
-    args: [parseEther("0.0001")],
+    args: ["Aether", "AETH"],
   });
 
-  console.log(`LootBox contract: `, deployedLootbox.address);
+  console.log(`Aether contract: `, deployedAether.address);
 };
 export default func;
-func.id = "deploy_lootbox"; // id required to prevent reexecution
-func.tags = ["LootBox"];
+func.id = "deploy_aether"; // id required to prevent reexecution
+func.tags = ["Aether"];

@@ -2,7 +2,7 @@ import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { ethers } from "hardhat";
 import { FHECounter__factory, LootBox, LootBox__factory } from "../types";
 import { parseEther } from "ethers";
-import { createInstance, FhevmInstance, PublicDecryptResults, SepoliaConfig } from "@zama-fhe/relayer-sdk";
+import { createInstance, SepoliaConfig } from "@zama-fhe/relayer-sdk/node";
 
 type Signers = {
   deployer: HardhatEthersSigner;
@@ -58,8 +58,8 @@ describe("FHECounter", function () {
     console.log("dice:", dice);
     console.log("e_blueprint_id:", e_blueprint_id);
 
-    const instance: FhevmInstance = await createInstance(SepoliaConfig);
-    const results: PublicDecryptResults = await instance.publicDecrypt([dice, e_blueprint_id]);
+    const instance = await createInstance();
+    const results = await instance.publicDecrypt([dice, e_blueprint_id]);
 
     const clearDice = results.clearValues[dice];
     const blueprint = results.clearValues[e_blueprint_id];

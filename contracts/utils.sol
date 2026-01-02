@@ -20,10 +20,10 @@ library LootboxUtils {
 
     struct ItemBlueprint {
         // How many NFT tokens of this blueprint that should be available
-        uint128 id;
-        uint128 max_supply;
+        euint128 id;
+        euint128 remaining_supply;
         string name;
-        uint128 rarity;
+        euint128 rarity;
     }
 
     struct Box {

@@ -1,177 +1,200 @@
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+// // SPDX-License-Identifier: MIT
+// pragma solidity ^0.8.24;
 
-import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
-import {LootboxUtils as ut} from "./utils.sol";
-import {console} from "hardhat/console.sol";
-import {ZamaEthereumConfig} from "@fhevm/solidity/config/ZamaConfig.sol";
-import {FHE, euint128, externalEuint32} from "@fhevm/solidity/lib/FHE.sol";
-import {ZamaEthereumConfig} from "@fhevm/solidity/config/ZamaConfig.sol";
+// import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+// import {LootboxUtils as ut} from "./utils.sol";
+// import {console} from "hardhat/console.sol";
+// import {ZamaEthereumConfig} from "@fhevm/solidity/config/ZamaConfig.sol";
+// import {FHE, euint128, euint256, externalEuint32} from "@fhevm/solidity/lib/FHE.sol";
+// import {ZamaEthereumConfig} from "@fhevm/solidity/config/ZamaConfig.sol";
 
-contract LootBox is ERC721, ZamaEthereumConfig {
-    // contract owner
-    address _owner;
+// contract LootBox is ERC721, ZamaEthereumConfig {
+//     // contract owner
+//     address _owner;
 
-    // How much should rolling 1 box cost? (in wei!)
-    uint256 _ticket_price;
+//     // How much should rolling 1 box cost? (in wei!)
+//     uint256 _ticket_price;
 
-    // The ticket registry, players consume a ticket when rolling a box.
-    // looting is free, tickets are what players actually buy.
-    mapping(address => ut.Ticket[]) _registry;
+//     mapping(address => ut.Box) _registry2;
 
-    mapping(address => ut.Box) _registry2;
+//     // A simple list of the item blueprints
+//     ut.ItemBlueprint[] _blueprints;
 
-    // Keep a mapping of all the tiers by their rarity, rarity acts like an UID for every tier.
-    // We also need to store the tier names adn ID's seperately to easily check for duplicate tiers.
-    mapping(uint256 => ut.Tier) _tiers;
-    uint256[] _tier_rarities;
-    string[] _tier_names;
+//     // All parameters necessary to validate ownership of an item id against the owner's provided challenge string etc.
+//     event minedSuccessfully(address indexed user, string blueprint_name);
+//     event ClearBoxRequested(euint128 dice, euint128 bp);
+//     event challengeFailed(address indexed user, string message);
+//     event newOwner(address indexed from, address to);
 
-    // For every tier rarity, store that tier's blueprints.
-    mapping(uint256 => ut.ItemBlueprint[]) _tier_blueprints;
+//     modifier isOwner() {
+//         require(msg.sender == _owner);
+//         _;
+//     }
 
-    // A simple list of the blueprints
-    ut.ItemBlueprint[] _blueprints;
+//     constructor(uint ticket_price) ERC721("Lootbox", "LOOT") {
+//         _owner = msg.sender;
+//         _ticket_price = ticket_price;
+//     }
 
-    // Tells the remaining supply for every blueprint ID
-    mapping(uint128 => uint128) _blueprint_supply;
+//     function _isBoxConfidentialLogicExecuted() private view returns (bool) {
+//         ut.Box memory box = _registry2[msg.sender];
+//         return FHE.isInitialized(box.dice) && FHE.isInitialized(box.e_blueprint_id);
+//     }
 
-    // All parameters necessary to validate ownership of an item id against the owner's provided challenge string etc.
-    event minedSuccessfully(address indexed user, string blueprint_name);
-    event ClearBoxRequested(euint128 dice, euint128 bp);
-    event challengeFailed(address indexed user, string message);
-    event newOwner(address indexed from, address to);
+//     modifier whenConfidentialLogicExecuted() {
+//         require(_isBoxConfidentialLogicExecuted(), "foo confidential logic not yet executed!");
+//         _;
+//     }
 
-    modifier isOwner() {
-        require(msg.sender == _owner);
-        _;
-    }
+//     function loot() public payable {
+//         euint128 dice = FHE.randEuint128();
+//         euint128 e_blueprint_seed = FHE.randEuint128();
 
-    constructor(uint ticket_price) ERC721("Lootbox", "LBX") {
-        _owner = msg.sender;
-        _ticket_price = ticket_price;
-    }
+//         // We're overflowing from 256-bit into 128-bit here, but I doubt there'll ever be more than 2^128 blueprints.
+//         uint256 temp_len = _blueprints.length;
+//         uint128 len;
+//         assembly {
+//             len := temp_len
+//         }
 
-    function _isBoxConfidentialLogicExecuted() private view returns (bool) {
-        ut.Box memory box = _registry2[msg.sender];
-        return FHE.isInitialized(box.dice) && FHE.isInitialized(box.e_blueprint_id);
-    }
+//         euint128 e_blueprint_index = FHE.rem(e_blueprint_seed, len);
 
-    modifier whenConfidentialLogicExecuted() {
-        require(_isBoxConfidentialLogicExecuted(), "foo confidential logic not yet executed!");
-        _;
-    }
+//         euint128 e_id;
+//         euint128 e_rarity;
+//         euint128 e_supply;
+//         (e_id, e_rarity, e_supply) = find_blueprint_enc(e_blueprint_index);
 
-    function loot() public payable {
-        ut.Box memory box = ut.Box(FHE.randEuint128(), FHE.randEuint128(), false);
+//         // Check the "coin toss": did the sender win
+//         // ebool has_won = FHE.eq(FHE.mod(dice, e_rarity), FHE.asUint128(8));
 
-        _registry2[msg.sender] = box;
+//         ut.Box memory box = ut.Box(FHE.randEuint128(), FHE.randEuint128(), false);
 
-        require(msg.value > _ticket_price, "Did not send enough wei to pay for lootbox!");
+//         _registry2[msg.sender] = box;
 
-        uint256 remainder = msg.value - _ticket_price;
+//         require(msg.value > _ticket_price, "Did not send enough wei to pay for lootbox!");
 
-        (bool ok, ) = msg.sender.call{value: remainder}("");
-        require(ok, "ETH transfer failed");
+//         uint256 remainder = msg.value - _ticket_price;
 
-        FHE.makePubliclyDecryptable(box.dice);
-        FHE.makePubliclyDecryptable(box.e_blueprint_id);
+//         (bool ok, ) = msg.sender.call{value: remainder}("");
+//         require(ok, "ETH transfer failed");
 
-        emit ClearBoxRequested(box.dice, box.e_blueprint_id);
-    }
+//         FHE.makePubliclyDecryptable(box.dice);
+//         FHE.makePubliclyDecryptable(box.e_blueprint_id);
 
-    function mine(
-        uint128 clear_dice,
-        uint128 clear_blueprint_id,
-        bytes memory publicDecryptionProof
-    ) external whenConfidentialLogicExecuted {
-        ut.Box memory box = _registry2[msg.sender];
+//         emit ClearBoxRequested(box.dice, box.e_blueprint_id);
+//     }
 
-        require(!box.isFinalized, "Box already looted!");
+//     function find_blueprint_enc(euint128 e_blueprint_index) internal returns (euint128, euint128, euint128) {
+//         euint128 e_blueprint_id = FHE.asEuint128(0);
+//         euint128 e_blueprint_rarity = FHE.asEuint128(0);
+//         euint128 e_blueprint_supply = FHE.asEuint128(0);
+//         for (uint128 i = 0; i < _blueprints.length; i++) {
+//             euint128 e_i = FHE.asEuint128(i);
 
-        // Verify KMS proof
-        bytes32[] memory e_box = new bytes32[](2);
-        e_box[0] = FHE.toBytes32(box.dice);
-        e_box[1] = FHE.toBytes32(box.e_blueprint_id);
+//             // Find the ID of the matching blueprint
+//             e_blueprint_id = FHE.select(FHE.eq(e_blueprint_index, e_i), _blueprints[i].id, e_blueprint_id);
 
-        bytes memory abiClearFooClearBar = abi.encode(box.dice, box.e_blueprint_id);
-        FHE.checkSignatures(e_box, abiClearFooClearBar, publicDecryptionProof);
+//             // Find the rarity of the matching blueprint
+//             e_blueprint_rarity = FHE.select(FHE.eq(e_blueprint_index, e_i), _blueprints[i].rarity, e_blueprint_rarity);
 
-        box.isFinalized = true;
+//             // Find the remaining supply of the matching blueprint
+//             e_blueprint_rarity = FHE.select(
+//                 FHE.eq(e_blueprint_index, e_i),
+//                 _blueprints[i].remaining_supply,
+//                 e_blueprint_supply
+//             );
+//         }
 
-        // Extract a random index for the blueprints array
-        uint256 rel_bp_target = clear_blueprint_id % _blueprints.length;
-        ut.ItemBlueprint memory bp = _blueprints[rel_bp_target];
+//         return (e_blueprint_id, e_blueprint_rarity, e_blueprint_supply);
+//     }
 
-        uint256 itemID = (uint256(bp.id) << 64) | _blueprint_supply[bp.id];
+//     function mine(
+//         uint128 clear_dice,
+//         uint128 clear_blueprint_id,
+//         bytes memory publicDecryptionProof
+//     ) external whenConfidentialLogicExecuted {
+//         ut.Box memory box = _registry2[msg.sender];
 
-        if (_blueprint_supply[bp.id] < 1) {
-            // failed, no supply
-            revert();
-        }
+//         require(!box.isFinalized, "Box already looted!");
 
-        // Has the randomly generated value hit the target?
-        bool has_won = (clear_dice % bp.rarity) == 1;
+//         // Verify KMS proof
+//         bytes32[] memory e_box = new bytes32[](2);
+//         e_box[0] = FHE.toBytes32(box.dice);
+//         e_box[1] = FHE.toBytes32(box.e_blueprint_id);
 
-        if (has_won) {
-            _safeMint(msg.sender, itemID);
-            _blueprint_supply[bp.id] = _blueprint_supply[bp.id] - 1;
-            emit minedSuccessfully(msg.sender, bp.name);
-        } else {}
-    }
+//         bytes memory abiClearFooClearBar = abi.encode(box.dice, box.e_blueprint_id);
+//         FHE.checkSignatures(e_box, abiClearFooClearBar, publicDecryptionProof);
 
-    /**
-     * Adds a blueprint to the specified tier.
-     *
-     * @param rarity (= tier ID) The tier you want to add this blueprint to.
-     * @param name Name of this blueprint, e.g. "Sword".
-     * @param max_supply The max amount of item ID's that can be generated fom this blueprint.
-     */
-    function addBlueprint(uint128 rarity, string memory name, uint128 max_supply) public isOwner {
-        // Find the highest existing blueprint ID
-        uint128 id = 0;
-        for (uint128 i = 0; i < _blueprints.length; i++) {
-            if (_blueprints[i].id > id) {
-                id = _blueprints[i].id + 1;
-            }
-        }
+//         box.isFinalized = true;
 
-        ut.ItemBlueprint memory bp = ut.ItemBlueprint(id, max_supply, name, rarity);
-        _blueprints[id] = bp;
-        _blueprint_supply[id] = max_supply;
-    }
+//         // Extract a random index for the blueprints array
+//         uint256 rel_bp_target = clear_blueprint_id % _blueprints.length;
+//         ut.ItemBlueprint storage bp = _blueprints[rel_bp_target];
 
-    /**
-     * Transfer to new owner.
-     */
-    function transferOwnership(address to) public isOwner {
-        _owner = to;
-        emit newOwner(msg.sender, _owner);
-    }
+//         uint256 itemID = (uint256(bp.id) << 64) | bp.remaining_supply;
 
-    /**
-     * Query the price of 1 ticket (in wei!)
-     */
-    function getTicketPrice() public view returns (uint256) {
-        return _ticket_price;
-    }
+//         if (bp.remaining_supply < 1) {
+//             // failed, no supply
+//             revert();
+//         }
 
-    function containsString(string[] storage array, string memory target) private view returns (bool) {
-        for (uint256 index = 0; index < array.length; index++) {
-            if (keccak256(abi.encodePacked(array[index])) == keccak256(abi.encodePacked(target))) {
-                return true;
-            }
-        }
-        return false;
-    }
+//         // Has the randomly generated value hit the target?
+//         bool has_won = (clear_dice % bp.rarity) == 1;
 
-    function containsInt(uint256[] storage array, uint256 target) private view returns (bool) {
-        for (uint256 index = 0; index < array.length; index++) {
-            if (array[index] == target) {
-                return true;
-            }
-        }
+//         if (has_won) {
+//             _safeMint(msg.sender, itemID);
+//             bp.remaining_supply = bp.remaining_supply - 1;
+//             emit minedSuccessfully(msg.sender, bp.name);
+//         } else {}
+//     }
 
-        return false;
-    }
-}
+//     /**
+//      * Adds a blueprint to the specified tier.
+//      *
+//      * @param rarity (= tier ID) The tier you want to add this blueprint to.
+//      * @param name Name of this blueprint, e.g. "Sword".
+//      * @param max_supply The max amount of item ID's that can be generated fom this blueprint.
+//      */
+//     function addBlueprint(uint128 rarity, string memory name, uint128 max_supply) public isOwner {
+//         // Find the highest existing blueprint ID
+//         euint128 id = FHE.randEuint128();
+
+//         ut.ItemBlueprint memory bp = ut.ItemBlueprint(id, FHE.asEuint128(max_supply), name, FHE.asEuint128(rarity));
+//         bp.remaining_supply = FHE.asEuint128(max_supply);
+//         _blueprints.push(bp);
+//     }
+
+//     /**
+//      * Transfer to new owner.
+//      */
+//     function transferOwnership(address to) public isOwner {
+//         _owner = to;
+//         emit newOwner(msg.sender, _owner);
+//     }
+
+//     /**
+//      * Query the price of 1 ticket (in wei!)
+//      */
+//     function getTicketPrice() public view returns (uint256) {
+//         return _ticket_price;
+//     }
+
+//     function containsString(string[] storage array, string memory target) private view returns (bool) {
+//         for (uint256 index = 0; index < array.length; index++) {
+//             if (keccak256(abi.encodePacked(array[index])) == keccak256(abi.encodePacked(target))) {
+//                 return true;
+//             }
+//         }
+//         return false;
+//     }
+
+//     function containsInt(uint256[] storage array, uint256 target) private view returns (bool) {
+//         for (uint256 index = 0; index < array.length; index++) {
+//             if (array[index] == target) {
+//                 return true;
+//             }
+//         }
+
+//         return false;
+//     }
+// }
