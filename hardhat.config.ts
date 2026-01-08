@@ -88,6 +88,9 @@ const config: HardhatUserConfig = {
       evmVersion: "cancun",
     },
   },
+  mocha: {
+    timeout: 120_000, // 2 minutes
+  },
   typechain: {
     outDir: "types",
     target: "ethers-v6",
