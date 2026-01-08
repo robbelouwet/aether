@@ -56,7 +56,9 @@ const config: HardhatUserConfig = {
         path: "m/44'/60'/0'/0/",
         count: 10,
       },
-      gas: 6_000_000,
+
+      // hard gas limit
+      gas: 10_000_000,
       chainId: 11155111,
       url: `https://sepolia.infura.io/v3/${INFURA_API_KEY}`,
     },

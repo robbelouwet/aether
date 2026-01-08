@@ -20,6 +20,8 @@ import "./FHEUtils.sol";
  * the Metadata extension, but not including the Enumerable extension, which is available separately as
  * {ERC721Enumerable}.
  */
+import "hardhat/console.sol";
+
 contract ERC721Confidential is Context, ERC165, IERC721Errors, ZamaEthereumConfig {
     using Strings for uint256;
 
@@ -39,16 +41,21 @@ contract ERC721Confidential is Context, ERC165, IERC721Errors, ZamaEthereumConfi
     mapping(uint256 => eaddress) private _tokenApprovals;
 
     // Mapping from owner to operator approvals
-    // mapping(eaddress => mapping(eaddress => ebool)) private _operatorApprovals;
-    FHEUtils.OperatorApprovals[] private _operatorApprovals;
+    // Counter
+    uint256 private _approvalsCounter;
+    // index => owner
+    mapping(uint256 => eaddress) private _approvalOwners;
+    // index => operator => approval
+    mapping(uint256 => mapping(address => ebool)) _operatorApprovals;
 
     // A bitmask that can hold up to 256 bits each one referring to an error that occured during execution of the last transaction to this contract
     euint256 private _errorMask;
 
-    eaddress public enulladdr;
+    eaddress private enulladdr;
 
     modifier resetErrors() {
         _errorMask = FHE.asEuint256(0);
+        FHE.allowThis(_errorMask);
         _;
     }
 
@@ -60,6 +67,8 @@ contract ERC721Confidential is Context, ERC165, IERC721Errors, ZamaEthereumConfi
         _symbol = symbol_;
 
         enulladdr = FHE.asEaddress(address(0));
+        _approvalsCounter = 0;
+        FHE.allowThis(enulladdr);
     }
 
     /// @inheritdoc IERC165
@@ -70,19 +79,28 @@ contract ERC721Confidential is Context, ERC165, IERC721Errors, ZamaEthereumConfi
             super.supportsInterface(interfaceId);
     }
 
-    function balanceOf(address owner) public virtual resetErrors returns (euint128) {
+    function balanceOf(address owner) public virtual resetErrors {
         if (owner == address(0)) {
             revert ERC721InvalidOwner(address(0));
         }
 
-        euint128 b = findBalance(FHE.asEaddress(owner));
+        euint128 b = FHE.asEuint128(0);
+        ebool foundMatch;
+        (b, foundMatch) = findBalance(FHE.asEaddress(owner));
+
+        setObliviousError(FHE.not(foundMatch), FHEUtils.ERC721IncorrectOwner);
+
+        // Authorize the owner, not necessarily the caller
         FHE.allow(b, owner);
-        return b;
+        emit FHEUtils.ObliviousError(getError());
+        emit FHEUtils.BalanceResult(b);
     }
 
-    function ownerOf(uint256 tokenId) public view virtual returns (eaddress) {
+    function ownerOf(uint256 tokenId) public virtual returns (eaddress) {
         eaddress owner = _ownerOf(tokenId);
         // require(owner != address(0), "ERC721: invalid token ID");
+
+        FHE.allow(owner, _msgSender());
         return owner;
     }
 
@@ -111,9 +129,8 @@ contract ERC721Confidential is Context, ERC165, IERC721Errors, ZamaEthereumConfi
     }
 
     function approve(eaddress to, uint256 tokenId) public virtual resetErrors {
-        _approve(to, tokenId, FHE.asEaddress(_msgSender()));
-
-        emit FHEUtils.ObliviousError(_errorMask);
+        _approve(to, tokenId, _msgSender());
+        emit FHEUtils.ObliviousError(getError());
     }
 
     function getApproved(uint256 tokenId) public view virtual returns (eaddress) {
@@ -122,18 +139,22 @@ contract ERC721Confidential is Context, ERC165, IERC721Errors, ZamaEthereumConfi
         return _getApproved(tokenId);
     }
 
-    function setApprovalForAll(eaddress operator, ebool approved) public virtual resetErrors {
+    function setApprovalForAll(address operator, ebool approved) public virtual resetErrors {
         _setApprovalForAll(FHE.asEaddress(_msgSender()), operator, approved);
-
-        emit FHEUtils.ObliviousError(_errorMask);
+        emit FHEUtils.ObliviousError(getError());
     }
 
-    function isApprovedForAll(eaddress owner, eaddress operator) public virtual resetErrors returns (ebool) {
+    function isApprovedForAll(eaddress owner, address operator) public virtual resetErrors returns (ebool) {
         ebool resultFound;
         ebool result;
         (resultFound, result) = findOperatorApproval(owner, operator);
 
         return FHE.select(resultFound, result, FHE.asEbool(false));
+    }
+
+    function mint(address to, uint256 tokenId) external resetErrors {
+        _safeMint(to, tokenId);
+        emit FHEUtils.ObliviousError(getError());
     }
 
     function transferFrom(address from, address to, uint256 tokenId) public virtual resetErrors {
@@ -145,29 +166,26 @@ contract ERC721Confidential is Context, ERC165, IERC721Errors, ZamaEthereumConfi
         // Setting an "auth" arguments enables the `_isAuthorized` check which verifies that the token exists
         // (from != 0). Therefore, it is not needed to verify that the return value is not 0 here.
         eaddress previousOwner = _ownerOf(tokenId);
+
         setObliviousError(FHE.not(FHE.eq(previousOwner, FHE.asEaddress(from))), FHEUtils.ERC721IncorrectOwner);
-        _update(FHE.asEaddress(to), tokenId, FHE.asEaddress(_msgSender()));
+        _update(FHE.asEaddress(to), tokenId, _msgSender());
 
         // TODO: convert to confidential error handling
         // if (previousOwner != from) {
         //     revert ERC721IncorrectOwner(from, tokenId, previousOwner);
         // }
-
-        emit FHEUtils.ObliviousError(_errorMask);
+        emit FHEUtils.ObliviousError(getError());
     }
 
     function safeTransferFrom(address from, address to, uint256 tokenId) public resetErrors {
-        // console.log("from: %s, to: %s, tokenId: %s", from, to, tokenId);
         safeTransferFrom(from, to, tokenId, "");
-
-        emit FHEUtils.ObliviousError(_errorMask);
+        emit FHEUtils.ObliviousError(getError());
     }
 
     function safeTransferFrom(address from, address to, uint256 tokenId, bytes memory data) public virtual {
         transferFrom(from, to, tokenId);
         ERC721Utils.checkOnERC721Received(_msgSender(), from, to, tokenId, data);
-
-        emit FHEUtils.ObliviousError(_errorMask);
+        emit FHEUtils.ObliviousError(getError());
     }
 
     /**
@@ -178,7 +196,11 @@ contract ERC721Confidential is Context, ERC165, IERC721Errors, ZamaEthereumConfi
      * consistent with ownership. The invariant to preserve is that for any address `a` the value returned by
      * `balanceOf(a)` must be equal to the number of tokens such that `_ownerOf(tokenId)` is `a`.
      */
-    function _ownerOf(uint256 tokenId) internal view virtual returns (eaddress) {
+    function _ownerOf(uint256 tokenId) internal virtual returns (eaddress) {
+        if (!FHE.isInitialized(_owners[tokenId])) {
+            return enulladdr;
+        }
+
         return _owners[tokenId];
     }
 
@@ -186,6 +208,10 @@ contract ERC721Confidential is Context, ERC165, IERC721Errors, ZamaEthereumConfi
      * @dev Returns the approved address for `tokenId`. Returns 0 if `tokenId` is not minted.
      */
     function _getApproved(uint256 tokenId) internal view virtual returns (eaddress) {
+        if (!FHE.isInitialized(_tokenApprovals[tokenId])) {
+            return enulladdr;
+        }
+
         return _tokenApprovals[tokenId];
     }
 
@@ -196,14 +222,14 @@ contract ERC721Confidential is Context, ERC165, IERC721Errors, ZamaEthereumConfi
      * WARNING: This function assumes that `owner` is the actual owner of `tokenId` and does not verify this
      * assumption.
      */
-    function _isAuthorized(eaddress owner, eaddress spender, uint256 tokenId) internal virtual returns (ebool) {
+    function _isAuthorized(eaddress owner, address spender, uint256 tokenId) internal virtual returns (ebool) {
         // return
         //     spender != address(0) &&
         //     (owner == spender || isApprovedForAll(owner, spender) || _getApproved(tokenId) == spender);
 
         return
             FHE.and(
-                FHE.not(FHEUtils.isNull(spender)),
+                FHE.asEbool(spender != address(0)),
                 FHE.or(
                     FHE.or(FHE.eq(owner, spender), isApprovedForAll(owner, spender)),
                     FHE.eq(_getApproved(tokenId), spender)
@@ -220,14 +246,17 @@ contract ERC721Confidential is Context, ERC165, IERC721Errors, ZamaEthereumConfi
      * WARNING: This function assumes that `owner` is the actual owner of `tokenId` and does not verify this
      * assumption.
      */
-    function _checkAuthorized(eaddress owner, eaddress spender, uint256 tokenId) internal virtual {
+    function _checkAuthorized(eaddress owner, address spender, uint256 tokenId) internal virtual returns (ebool) {
         ebool allowedToSpend = _isAuthorized(owner, spender, tokenId);
         ebool ownerIsZero = FHEUtils.isNull(owner);
 
         ebool unauthorized = FHE.and(FHE.not(allowedToSpend), FHE.not(shouldAbort()));
-        setObliviousError(FHE.and(unauthorized, ownerIsZero), FHEUtils.ERC721NonexistentToken);
 
-        setObliviousError(FHE.and(unauthorized, FHE.not(ownerIsZero)), FHEUtils.ERC721InsufficientApproval);
+        ebool cond1 = FHE.and(unauthorized, ownerIsZero);
+        // setObliviousError(cond1, FHEUtils.ERC721NonexistentToken);
+
+        ebool cond2 = FHE.and(unauthorized, FHE.not(ownerIsZero));
+        // setObliviousError(cond2, FHEUtils.ERC721InsufficientApproval);
 
         // if (!_isAuthorized(owner, spender, tokenId)) {
         //     if (owner == address(0)) {
@@ -236,6 +265,8 @@ contract ERC721Confidential is Context, ERC165, IERC721Errors, ZamaEthereumConfi
         //         revert ERC721InsufficientApproval(spender, tokenId);
         //     }
         // }
+
+        return FHE.or(cond1, cond2);
     }
 
     // /**
@@ -265,7 +296,7 @@ contract ERC721Confidential is Context, ERC165, IERC721Errors, ZamaEthereumConfi
      *
      * NOTE: If overriding this function in a way that tracks balances, see also {_increaseBalance}.
      */
-    function _update(eaddress to, uint256 tokenId, eaddress auth) internal virtual {
+    function _update(eaddress to, uint256 tokenId, address auth) internal virtual {
         eaddress from = _ownerOf(tokenId);
         // eaddress e_to = FHE.asEaddress(to);
 
@@ -274,7 +305,12 @@ contract ERC721Confidential is Context, ERC165, IERC721Errors, ZamaEthereumConfi
         //     _checkAuthorized(from, auth, tokenId);
         // }
         // This will possibly update the _errorMask
-        _checkAuthorized(from, auth, tokenId);
+
+        // Set an error if auth is not zero AND auth is unauthorized
+        setObliviousError(
+            FHE.and(FHE.asEbool(auth != address(0)), FHE.not(_checkAuthorized(from, auth, tokenId))),
+            FHEUtils.ERC721InvalidApprover
+        );
 
         // Execute the update
         // If this is a transfer
@@ -287,7 +323,7 @@ contract ERC721Confidential is Context, ERC165, IERC721Errors, ZamaEthereumConfi
         ebool toNotNull = FHEUtils.notNull(to);
 
         // if (from != address(0))
-        _approve(enulladdr, tokenId, enulladdr, false);
+        _approve(enulladdr, tokenId, address(0), false);
         unchecked {
             euint128 delta = FHE.select(
                 FHE.and(fromNotNull, FHE.not(shouldAbort())),
@@ -309,7 +345,9 @@ contract ERC721Confidential is Context, ERC165, IERC721Errors, ZamaEthereumConfi
 
         // Turn this into a nullop if the sender is not the owner OR if the caller already wants to cancel due to some reason
         ebool fromIsSender = FHE.eq(FHE.asEaddress(_msgSender()), from);
-        _owners[tokenId] = FHE.select(FHE.and(fromIsSender, FHE.not(shouldAbort())), to, _owners[tokenId]);
+        _owners[tokenId] = FHE.select(FHE.and(fromIsSender, FHE.not(shouldAbort())), to, _ownerOf(tokenId));
+
+        FHE.allowThis(_owners[tokenId]);
 
         emit FHEUtils.ObliviousTransfer(from, to, tokenId);
 
@@ -339,7 +377,7 @@ contract ERC721Confidential is Context, ERC165, IERC721Errors, ZamaEthereumConfi
         // }
         setObliviousError(FHEUtils.notNull(_ownerOf(tokenId)), FHEUtils.ERC721InvalidReceiver);
 
-        _update(to, tokenId, enulladdr);
+        _update(to, tokenId, address(0));
     }
 
     /**
@@ -384,7 +422,7 @@ contract ERC721Confidential is Context, ERC165, IERC721Errors, ZamaEthereumConfi
         // }
         setObliviousError(FHEUtils.isNull(previousOwner), FHEUtils.ERC721NonexistentToken);
 
-        _update(enulladdr, tokenId, enulladdr);
+        _update(enulladdr, tokenId, address(0));
     }
 
     /**
@@ -413,11 +451,15 @@ contract ERC721Confidential is Context, ERC165, IERC721Errors, ZamaEthereumConfi
         // } else if (previousOwner != from) {
         //     revert ERC721IncorrectOwner(from, tokenId, previousOwner);
         // }
-        setObliviousError(FHEUtils.isNull(previousOwner), FHEUtils.ERC721NonexistentToken);
+        ebool prevOwnerNull = FHEUtils.isNull(previousOwner);
+        setObliviousError(prevOwnerNull, FHEUtils.ERC721NonexistentToken);
 
-        setObliviousError(FHE.not(FHE.eq(previousOwner, from)), FHEUtils.ERC721IncorrectOwner);
+        setObliviousError(
+            FHE.and(FHE.not(FHE.eq(previousOwner, from)), FHE.not(prevOwnerNull)),
+            FHEUtils.ERC721IncorrectOwner
+        );
 
-        _update(to, tokenId, enulladdr);
+        _update(to, tokenId, address(0));
     }
 
     /**
@@ -462,7 +504,7 @@ contract ERC721Confidential is Context, ERC165, IERC721Errors, ZamaEthereumConfi
      *
      * Overrides to this logic should be done to the variant with an additional `bool emitEvent` argument.
      */
-    function _approve(eaddress to, uint256 tokenId, eaddress auth) internal {
+    function _approve(eaddress to, uint256 tokenId, address auth) internal {
         _approve(to, tokenId, auth, true);
     }
 
@@ -471,14 +513,14 @@ contract ERC721Confidential is Context, ERC165, IERC721Errors, ZamaEthereumConfi
      * emitted in the context of transfers.
      */
     /* DONE */
-    function _approve(eaddress to, uint256 tokenId, eaddress auth, bool emitEvent) internal virtual {
+    function _approve(eaddress to, uint256 tokenId, address auth, bool emitEvent) internal virtual {
         // Avoid reading the owner unless necessary
 
         eaddress owner = _ownerOf(tokenId);
 
         // Mimic the branch where the approval should not take place
         ebool invalidApprover = FHE.and(
-            FHEUtils.notNull(auth),
+            FHE.asEbool(auth != address(0)),
             FHE.and(FHE.not(FHE.eq(owner, auth)), FHE.not(isApprovedForAll(owner, auth)))
         );
         setObliviousError(invalidApprover, FHEUtils.ERC721InvalidApprover);
@@ -491,13 +533,15 @@ contract ERC721Confidential is Context, ERC165, IERC721Errors, ZamaEthereumConfi
         //         revert ERC721InvalidApprover(auth);
         //     }
 
-        to = FHE.select(shouldAbort(), _tokenApprovals[tokenId], to);
+        to = FHE.select(shouldAbort(), _getApproved(tokenId), to);
         if (emitEvent) {
             emit FHEUtils.ObliviousApproval(owner, to, tokenId);
         }
         // }
 
         _tokenApprovals[tokenId] = to;
+
+        FHE.allowThis(_tokenApprovals[tokenId]);
     }
 
     /**
@@ -508,32 +552,46 @@ contract ERC721Confidential is Context, ERC165, IERC721Errors, ZamaEthereumConfi
      *
      * Emits an {ApprovalForAll} event.
      */
-    function _setApprovalForAll(eaddress owner, eaddress operator, ebool approved) internal virtual returns (ebool) {
-        ebool resultFound = FHE.asEbool(false);
-
-        for (uint256 i = 0; i < _operatorApprovals.length; i++) {
-            for (uint256 j = 0; j < _operatorApprovals[i].approvals.length; j++) {
-                resultFound = FHE.select(
-                    FHE.and(
-                        FHE.eq(owner, _operatorApprovals[i].owner),
-                        FHE.eq(operator, _operatorApprovals[i].approvals[j].operator)
-                    ),
-                    FHE.asEbool(true),
-                    resultFound
-                );
-
-                _operatorApprovals[i].approvals[j].value = FHE.select(
-                    resultFound,
-                    approved,
-                    _operatorApprovals[i].approvals[j].value
-                );
-            }
+    function _setApprovalForAll(eaddress owner, address operator, ebool approved) internal virtual {
+        for (uint256 i = 0; i < _approvalsCounter; i++) {
+            _operatorApprovals[i][operator] = FHE.select(
+                FHE.eq(_approvalOwners[i], owner),
+                approved,
+                _operatorApprovals[i][operator]
+            );
         }
 
         emit FHEUtils.ObliviousApprovalForAll(owner, operator, approved);
-
-        return resultFound;
     }
+
+    // function _setApprovalForAll(eaddress owner, address operator, ebool approved) internal virtual {
+    //     ebool success = FHE.asEbool(false);
+
+    //     if (_operatorApprovals.length == 0) {
+    //         FHEUtils.OperatorApprovals storage t;
+    //         t.owner = enulladdr;
+    //         _operatorApprovals.push(t);
+    //     }
+
+    //     FHEUtils.Balance storage last = _operatorApprovals[_operatorApprovals.length - 1];
+    //     bool lastOneIsEmpty = !FHE.isInitialized(last.owner);
+    //     if (!lastOneIsEmpty) {
+    //         _operatorApprovals.push(FHEUtils.Balance(FHEUtils.nullEaddress(), FHEUtils.nullEuint128()));
+    //     }
+
+    //     for (uint256 i = 0; i < _operatorApprovals.length; i++) {
+    //         ebool resultFound = FHE.eq(owner, _operatorApprovals[i].owner);
+    //         success = FHE.or(resultFound, success);
+
+    //         _operatorApprovals[i].approvals[operator] = FHE.select(
+    //             resultFound,
+    //             approved,
+    //             _operatorApprovals[i].approvals[operator]
+    //         );
+    //     }
+
+    //     emit FHEUtils.ObliviousApprovalForAll(owner, operator, approved);
+    // }
 
     // /**
     //  * @dev Reverts if the `tokenId` doesn't have a current owner (it hasn't been minted, or it has been burned).
@@ -546,62 +604,121 @@ contract ERC721Confidential is Context, ERC165, IERC721Errors, ZamaEthereumConfi
     //     return owner;
     // }
 
-    function findOperatorApproval(eaddress owner, eaddress operator) internal virtual returns (ebool, ebool) {
-        ebool resultFound = FHE.asEbool(false);
+    function findOperatorApproval(eaddress owner, address operator) internal virtual returns (ebool, ebool) {
+        ebool success = FHE.asEbool(false);
         ebool result = FHE.asEbool(false);
 
-        for (uint256 i = 0; i < _operatorApprovals.length; i++) {
-            for (uint256 j = 0; j < _operatorApprovals[i].approvals.length; j++) {
-                resultFound = FHE.select(
-                    FHE.and(
-                        FHE.eq(owner, _operatorApprovals[i].owner),
-                        FHE.eq(operator, _operatorApprovals[i].approvals[j].operator)
-                    ),
-                    FHE.asEbool(true),
-                    resultFound
-                );
-
-                result = FHE.select(resultFound, _operatorApprovals[i].approvals[j].value, resultFound);
-            }
+        for (uint256 i = 0; i < _approvalsCounter; i++) {
+            ebool resultFound = FHE.eq(_approvalOwners[i], owner);
+            success = FHE.or(success, resultFound);
+            result = FHE.select(resultFound, _operatorApprovals[i][operator], result);
         }
 
-        return (resultFound, result);
+        return (success, result);
     }
 
-    function findBalance(eaddress owner) internal virtual returns (euint128 ret) {
+    function findBalance(eaddress owner) internal virtual returns (euint128, ebool) {
+        ebool success = FHE.asEbool(false);
+        euint128 bal = FHE.asEuint128(0);
+
         for (uint256 i = 0; i < _balances.length; i++) {
             ebool foundMatch = FHE.eq(_balances[i].owner, owner);
-            ret = FHE.select(foundMatch, _balances[i].balance, ret);
+            success = FHE.or(success, foundMatch);
+            bal = FHE.select(foundMatch, _balances[i].balance, bal);
         }
+
+        // Authorize this contract!
+        FHE.allowThis(bal);
+
+        return (bal, success);
     }
 
-    function addBalance(eaddress owner, euint128 delta) internal virtual returns (ebool success) {
+    function addBalance(eaddress owner, euint128 delta) internal virtual returns (ebool) {
+        ebool success = FHE.asEbool(false);
+        // Ensure the last balance in the array is an "empty slot"
+
+        if (_balances.length == 0) {
+            _balances.push(FHEUtils.Balance(FHEUtils.nullEaddress(), FHEUtils.nullEuint128()));
+        }
+
+        FHEUtils.Balance storage last = _balances[_balances.length - 1];
+        bool lastOneIsEmpty = !FHE.isInitialized(last.owner);
+        if (!lastOneIsEmpty) {
+            _balances.push(FHEUtils.Balance(FHEUtils.nullEaddress(), FHEUtils.nullEuint128()));
+        }
+
+        euint128 b = FHE.asEuint128(0);
         for (uint256 i = 0; i < _balances.length; i++) {
             ebool foundMatch = FHE.eq(_balances[i].owner, owner);
-            success = FHE.select(foundMatch, FHE.asEbool(true), success);
+            success = FHE.or(success, foundMatch);
             _balances[i].balance = FHE.select(foundMatch, FHE.add(_balances[i].balance, delta), _balances[i].balance);
+            b = FHE.select(foundMatch, _balances[i].balance, b);
+
+            // Maybe we found a match and obliviously updated someone's balance,
+            // so we need to re-authorize this contract every time!
+            FHE.allowThis(_balances[i].balance);
         }
+
+        // If no match was found, we occupy that last "empty slot"
+        // Set owner & authorize contract
+        _balances[_balances.length - 1].owner = FHE.select(
+            FHE.not(success),
+            owner,
+            _balances[_balances.length - 1].owner
+        );
+        FHE.allowThis(_balances[_balances.length - 1].owner);
+
+        _balances[_balances.length - 1].balance = FHE.select(
+            FHE.not(success),
+            delta,
+            _balances[_balances.length - 1].balance
+        );
+        FHE.allowThis(_balances[_balances.length - 1].balance);
+
+        // Authorize the contract after an update
+        FHE.allowThis(b);
+
+        return success;
     }
 
-    function subtractBalance(eaddress owner, euint128 delta) internal virtual returns (ebool success) {
+    function subtractBalance(eaddress owner, euint128 delta) internal virtual returns (ebool) {
+        ebool success = FHE.asEbool(false);
+        euint128 b = FHE.asEuint128(0);
         for (uint256 i = 0; i < _balances.length; i++) {
             ebool foundMatch = FHE.eq(_balances[i].owner, owner);
-            success = FHE.select(foundMatch, FHE.asEbool(true), success);
+            success = FHE.or(success, foundMatch);
             _balances[i].balance = FHE.select(foundMatch, FHE.sub(_balances[i].balance, delta), _balances[i].balance);
+            b = FHE.select(foundMatch, _balances[i].balance, b);
         }
+
+        // If the owner does not have a balance yet
+        setObliviousError(
+            FHE.and(FHE.not(success), FHE.not(FHE.eq(FHE.asEuint128(0), delta))),
+            FHEUtils.ERC721IncorrectOwner
+        );
+
+        // Authorize the contract after an update
+        FHE.allowThis(b);
+
+        return success;
     }
 
     function shouldAbort() internal returns (ebool) {
         return FHE.not(FHE.eq(_errorMask, FHE.asEuint256(0)));
     }
 
-    function setObliviousError(ebool cond, uint8 errorPos) public {
+    function getError() internal returns (euint256) {
+        FHE.allow(_errorMask, _msgSender());
+        return _errorMask;
+    }
+
+    function setObliviousError(ebool cond, uint8 errorPos) internal {
         // Select the bit obliviously
         euint256 errorbit = FHE.select(cond, FHE.asEuint256(1), FHE.asEuint256(0));
 
-        // Update & return the error bitmask
         _errorMask = FHE.or(_errorMask, FHE.shl(errorbit, errorPos));
 
-        FHE.allow(_errorMask, _msgSender());
+        // Authorize the contract again after updating!
+        FHE.allowThis(_errorMask);
     }
 }

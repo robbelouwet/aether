@@ -18,14 +18,9 @@ library FHEUtils {
         euint128 balance;
     }
 
-    struct OperatorApproval {
-        eaddress operator;
-        ebool value;
-    }
-
     struct OperatorApprovals {
         eaddress owner;
-        OperatorApproval[] approvals;
+        mapping(address => ebool) approvals;
     }
 
     /**
@@ -41,12 +36,14 @@ library FHEUtils {
     /**
      * @dev Emitted when `owner` enables or disables (`approved`) `operator` to manage all of its assets.
      */
-    event ObliviousApprovalForAll(eaddress indexed owner, eaddress indexed operator, ebool approved);
+    event ObliviousApprovalForAll(eaddress indexed owner, address indexed operator, ebool approved);
 
     /**
      * @dev emitted right before the top-level stack frame returns and the transaction ends. A way to notify the caller of an oblivious error.
      */
     event ObliviousError(euint256 error);
+
+    event BalanceResult(euint128 balance);
 
     // Confidential AND plaintext checks
     function isNull(eaddress a) internal returns (ebool) {
@@ -59,6 +56,10 @@ library FHEUtils {
 
     // ----------------
     // Plaintext nullcheck on confidential address
+    function isNullRaw(eaddress a) internal pure returns (bool) {
+        return (!notNullRaw(a));
+    }
+
     function notNullRaw(eaddress a) internal pure returns (bool) {
         bytes32 temp;
 
@@ -85,5 +86,29 @@ library FHEUtils {
     // Confidential check on confidential address
     function notNullConfidential(eaddress a) internal returns (ebool) {
         return FHE.not(FHE.eq(a, FHE.asEaddress(address(0))));
+    }
+
+    function nullEaddress() internal pure returns (eaddress) {
+        bytes32 b = bytes32(0);
+
+        eaddress a;
+
+        assembly {
+            a := b
+        }
+
+        return a;
+    }
+
+    function nullEuint128() internal pure returns (euint128) {
+        bytes32 b = bytes32(0);
+
+        euint128 a;
+
+        assembly {
+            a := b
+        }
+
+        return a;
     }
 }
