@@ -41,77 +41,21 @@ describe("Mint for Alice and transfer to Bob", function () {
       const ethSigners: HardhatEthersSigner[] = await ethers.getSigners();
       signers = { deployer: ethSigners[0], alice: ethSigners[1], bob: ethSigners[2] };
     }
+
+    await printBalance(signers.deployer, "Deployer");
+    await printBalance(signers.alice, "Alice");
+    await printBalance(signers.bob, "Bob");
   });
-
-  //   it(" balance Alice = 0, balance Bob = 0", async function () {
-  //     const txBalance = await erc721Contract.connect(signers.alice).balanceOf(signers.alice.address);
-  //     const receiptBalance = await txBalance.wait();
-  //     // console.log("BalanceOf receipt: ", receiptBalance);
-
-  //     const balanceOfError = extractEvent("ObliviousError", erc721Contract, receiptBalance);
-  //     expect(balanceOfError).to.be.not.undefined;
-  //     expect(balanceOfError![0]).to.be.not.undefined;
-  //     // console.log("Error balanceOf:", balanceOfError);
-
-  //     const balanceResult = extractEvent("BalanceResult", erc721Contract, receiptBalance);
-  //     expect(balanceResult).to.be.not.undefined;
-  //     expect(balanceResult![0]).to.be.not.undefined;
-  //     // console.log("BalanceResult:", balanceResult);
-
-  //     if (!fhevm.isMock) {
-  //       const ptError = await userDecrypt(
-  //         balanceOfError![0],
-  //         erc721ContractAddress,
-  //         signers.alice,
-  //         await createInstance(SepoliaConfig),
-  //       );
-  //       expect(ptError).to.eq(0);
-  //       // console.log("Error: ", pt);
-
-  //       const ptBalanceResult = await userDecrypt(
-  //         balanceResult![0],
-  //         erc721ContractAddress,
-  //         signers.alice,
-  //         await createInstance(SepoliaConfig),
-  //       );
-  //       expect(ptBalanceResult).to.eq(0);
-  //     }
-  //   });
-
-  //   it("Mint for Alice", async function () {
-  //     const txTransfer = await erc721Contract.connect(signers.alice).mint(signers.alice.address, tokenId);
-  //     const receiptMint = await txTransfer.wait();
-  //     // console.log("mint receipt:", receiptMint);
-
-  //     const mintError = extractEvent("ObliviousError", erc721Contract, receiptMint);
-
-  //     expect(mintError).to.be.not.undefined;
-  //     expect(mintError![0]).to.be.not.undefined;
-  //     // console.log("Error mint:", mintError);
-
-  //     if (!fhevm.isMock) {
-  //       const pt = await userDecrypt(
-  //         mintError![0],
-  //         erc721ContractAddress,
-  //         signers.alice,
-  //         await createInstance(SepoliaConfig),
-  //       );
-  //       console.log("Error: ", pt);
-  //       expect(pt).to.eq(0);
-  //     }
-
-  //     // ...
-  //   });
 
   it("Balance Alice = 0", async function () {
     // Call the method, fetch the error, and assert the error is an all-zero bitarray
-    // Also fetch a "BalanceResult" event from the receipt, and evaluate its value using the callable
+    // Also fetch a "BalanceResult" event from the receipt, and evaluate its value using the callables
     await successWithResult(
       signers.alice,
       erc721Contract,
       () => erc721Contract.connect(signers.alice).balanceOf(signers.alice.address),
       "BalanceResult",
-      (pt) => expect(pt).to.eq(0),
+      [(pt) => expect(pt).to.eq(0)],
     );
   });
 
@@ -121,26 +65,31 @@ describe("Mint for Alice and transfer to Bob", function () {
       signers.alice,
       erc721Contract,
       () => erc721Contract.connect(signers.alice).mint(signers.alice.address, tokenId),
-      null,
-      null,
+      "ObliviousTransfer",
+      [
+        // First arg of ObliviousTransfer event should be zero addr, second is alice's addr, third is the tokenId (we're minting!)
+        (pt) => expect(pt).to.eq(ethers.ZeroAddress),
+        (pt) => expect(pt).to.eq(signers.alice.address),
+        (pt) => expect(pt).to.eq(tokenId),
+      ],
     );
   });
 
   it("Balance Alice = 1", async function () {
     // Call the method, fetch the error, and assert the error is an all-zero bitarray
-    // Also fetch a "BalanceResult" event from the receipt, and evaluate its value using the callable
+    // Also fetch a "BalanceResult" event from the receipt, and evaluate its value using the callables
     await successWithResult(
       signers.alice,
       erc721Contract,
       () => erc721Contract.connect(signers.alice).balanceOf(signers.alice.address),
       "BalanceResult",
-      (pt) => expect(pt).to.eq(1),
+      [(pt) => expect(pt).to.eq(1)],
     );
   });
 
   it("Transfer Alice => Bob", async function () {
     // Call the method, fetch the error, and assert the error is an all-zero bitarray
-    // Also fetch a "BalanceResult" event from the receipt, and evaluate its value using the callable
+    // Also fetch a "ObliviousTransfer" event from the receipt, and evaluate its values using the callables
     await successWithResult(
       signers.alice,
       erc721Contract,
@@ -148,32 +97,37 @@ describe("Mint for Alice and transfer to Bob", function () {
         erc721Contract
           .connect(signers.alice)
           ["safeTransferFrom(address,address,uint256)"](signers.alice.address, signers.bob.address, tokenId),
-      null,
-      null,
+      "ObliviousTransfer",
+      [
+        // First arg of ObliviousTransfer event should be alice's addr, second is bob's addr, third is the tokenId
+        (pt) => expect(pt).to.eq(signers.alice.address),
+        (pt) => expect(pt).to.eq(signers.bob.address),
+        (pt) => expect(pt).to.eq(tokenId),
+      ],
     );
   });
 
   it("Balance Alice = 0", async function () {
     // Call the method, fetch the error, and assert the error is an all-zero bitarray
-    // Also fetch a "BalanceResult" event from the receipt, and evaluate its value using the callable
+    // Also fetch a "BalanceResult" event from the receipt, and evaluate its value using the callables
     await successWithResult(
       signers.alice,
       erc721Contract,
       () => erc721Contract.connect(signers.alice).balanceOf(signers.alice.address),
       "BalanceResult",
-      (pt) => expect(pt).to.eq(0),
+      [(pt) => expect(pt).to.eq(0)],
     );
   });
 
   it("Balance Bob = 1", async function () {
     // Call the method, fetch the error, and assert the error is an all-zero bitarray
-    // Also fetch a "BalanceResult" event from the receipt, and evaluate its value using the callable
+    // Also fetch a "BalanceResult" event from the receipt, and evaluate its value using the callables
     await successWithResult(
       signers.bob,
       erc721Contract,
       () => erc721Contract.connect(signers.bob).balanceOf(signers.bob.address),
       "BalanceResult",
-      (pt) => expect(pt).to.eq(1),
+      [(pt) => expect(pt).to.eq(1)],
     );
   });
 });
@@ -183,7 +137,7 @@ async function successWithResult(
   contract: ERC721Confidential,
   method: () => Promise<any>,
   resultEvent: string | null,
-  checker: ((pt: ClearValueType) => Chai.Assertion) | null,
+  checkers: ((pt: ClearValueType) => Chai.Assertion)[] | null,
 ) {
   const tx = await method();
   const receipt = await tx.wait();
@@ -195,16 +149,17 @@ async function successWithResult(
   if (resultEvent !== null) {
     const contractCallResult = extractEvent(resultEvent, contract, receipt);
     expect(contractCallResult).to.be.not.undefined;
-    expect(contractCallResult![0]).to.be.not.undefined;
 
     if (!fhevm.isMock) {
-      const ptResult = await userDecrypt(
-        contractCallResult![0],
-        await contract.getAddress(),
-        caller,
-        await createInstance(SepoliaConfig),
-      );
-      checker!(ptResult);
+      for (let i = 0; i < contractCallResult!.length; i++) {
+        const ptResult = await userDecrypt(
+          contractCallResult![i],
+          await contract.getAddress(),
+          caller,
+          await createInstance(SepoliaConfig),
+        );
+        checkers![i](ptResult);
+      }
     }
   }
 
@@ -215,7 +170,7 @@ async function successWithResult(
       caller,
       await createInstance(SepoliaConfig),
     );
-    expect(ptError).to.eq(0);
+    expect(ptError, `An oblivious error was raised! Error bit mask: ${ptError}`).to.eq(0);
   }
 }
 
@@ -272,4 +227,9 @@ async function userDecrypt(ct: any, erc721ContractAddress: string, user: Hardhat
   );
 
   return result[ct];
+}
+
+async function printBalance(signer: HardhatEthersSigner, name: string) {
+  let ethBalance = ethers.formatEther(await ethers.provider.getBalance(signer.address));
+  console.log(`Balance of ${name} (${await signer.getAddress()}): ${ethBalance}`);
 }

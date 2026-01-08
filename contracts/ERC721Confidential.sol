@@ -12,15 +12,7 @@ import {IERC165, ERC165} from "@openzeppelin/contracts/utils/introspection/ERC16
 import {IERC721Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {ZamaEthereumConfig} from "@fhevm/solidity/config/ZamaConfig.sol";
 import {FHE, euint128, euint256, ebool, eaddress, externalEuint32} from "@fhevm/solidity/lib/FHE.sol";
-// import "hardhat/console.sol";
 import "./FHEUtils.sol";
-
-/**
- * @dev Implementation of https://eips.ethereum.org/EIPS/eip-721[ERC-721] Non-Fungible Token Standard, including
- * the Metadata extension, but not including the Enumerable extension, which is available separately as
- * {ERC721Enumerable}.
- */
-import "hardhat/console.sol";
 
 contract ERC721Confidential is Context, ERC165, IERC721Errors, ZamaEthereumConfig {
     using Strings for uint256;
@@ -81,17 +73,14 @@ contract ERC721Confidential is Context, ERC165, IERC721Errors, ZamaEthereumConfi
 
     function balanceOf(address owner) public virtual resetErrors {
         if (owner == address(0)) {
-            revert ERC721InvalidOwner(address(0));
+            revert ERC721InvalidOwner(owner);
         }
 
-        euint128 b = FHE.asEuint128(0);
-        ebool foundMatch;
-        (b, foundMatch) = findBalance(FHE.asEaddress(owner));
-
-        setObliviousError(FHE.not(foundMatch), FHEUtils.ERC721IncorrectOwner);
+        euint128 b = findBalance(FHE.asEaddress(owner));
 
         // Authorize the owner, not necessarily the caller
         FHE.allow(b, owner);
+
         emit FHEUtils.ObliviousError(getError());
         emit FHEUtils.BalanceResult(b);
     }
@@ -269,22 +258,6 @@ contract ERC721Confidential is Context, ERC165, IERC721Errors, ZamaEthereumConfi
         return FHE.or(cond1, cond2);
     }
 
-    // /**
-    //  * @dev Unsafe write access to the balances, used by extensions that "mint" tokens using an {ownerOf} override.
-    //  *
-    //  * NOTE: the value is limited to type(uint128).max. This protect against _balance overflow. It is unrealistic that
-    //  * a uint256 would ever overflow from increments when these increments are bounded to uint128 values.
-    //  *
-    //  * WARNING: Increasing an account's balance using this function tends to be paired with an override of the
-    //  * {_ownerOf} function to resolve the ownership of the corresponding tokens so that balances and ownership
-    //  * remain consistent with one another.
-    //  */
-    // function _increaseBalance(address account, uint128 value) internal virtual {
-    //     unchecked {
-    //         _balances[account] += value;
-    //     }
-    // }
-
     /**
      * @dev Transfers `tokenId` from its current owner to `to`, or alternatively mints (or burns) if the current owner
      * (or `to`) is the zero address. Returns the owner of the `tokenId` before the update.
@@ -343,13 +316,22 @@ contract ERC721Confidential is Context, ERC165, IERC721Errors, ZamaEthereumConfi
             addBalance(to, delta);
         }
 
-        // Turn this into a nullop if the sender is not the owner OR if the caller already wants to cancel due to some reason
-        ebool fromIsSender = FHE.eq(FHE.asEaddress(_msgSender()), from);
-        _owners[tokenId] = FHE.select(FHE.and(fromIsSender, FHE.not(shouldAbort())), to, _ownerOf(tokenId));
+        // Turn this into a nullop if some error has been raised before this point
+        // ebool fromIsSender = FHE.eq(FHE.asEaddress(_msgSender()), from);
+        _owners[tokenId] = FHE.select(FHE.not(shouldAbort()), to, _ownerOf(tokenId));
+
+        euint256 e_tokenId = FHE.asEuint256(tokenId);
 
         FHE.allowThis(_owners[tokenId]);
 
-        emit FHEUtils.ObliviousTransfer(from, to, tokenId);
+        FHE.allowThis(e_tokenId);
+        FHE.allowThis(from);
+        FHE.allowThis(to);
+
+        FHE.allow(e_tokenId, _msgSender());
+        FHE.allow(from, _msgSender());
+        FHE.allow(to, _msgSender());
+        emit FHEUtils.ObliviousTransfer(from, to, e_tokenId);
 
         // return from;
     }
@@ -564,46 +546,6 @@ contract ERC721Confidential is Context, ERC165, IERC721Errors, ZamaEthereumConfi
         emit FHEUtils.ObliviousApprovalForAll(owner, operator, approved);
     }
 
-    // function _setApprovalForAll(eaddress owner, address operator, ebool approved) internal virtual {
-    //     ebool success = FHE.asEbool(false);
-
-    //     if (_operatorApprovals.length == 0) {
-    //         FHEUtils.OperatorApprovals storage t;
-    //         t.owner = enulladdr;
-    //         _operatorApprovals.push(t);
-    //     }
-
-    //     FHEUtils.Balance storage last = _operatorApprovals[_operatorApprovals.length - 1];
-    //     bool lastOneIsEmpty = !FHE.isInitialized(last.owner);
-    //     if (!lastOneIsEmpty) {
-    //         _operatorApprovals.push(FHEUtils.Balance(FHEUtils.nullEaddress(), FHEUtils.nullEuint128()));
-    //     }
-
-    //     for (uint256 i = 0; i < _operatorApprovals.length; i++) {
-    //         ebool resultFound = FHE.eq(owner, _operatorApprovals[i].owner);
-    //         success = FHE.or(resultFound, success);
-
-    //         _operatorApprovals[i].approvals[operator] = FHE.select(
-    //             resultFound,
-    //             approved,
-    //             _operatorApprovals[i].approvals[operator]
-    //         );
-    //     }
-
-    //     emit FHEUtils.ObliviousApprovalForAll(owner, operator, approved);
-    // }
-
-    // /**
-    //  * @dev Reverts if the `tokenId` doesn't have a current owner (it hasn't been minted, or it has been burned).
-    //  * Returns the owner.
-    //  *
-    //  * Overrides to ownership logic should be done to {_ownerOf}.
-    //  */
-    // function _requireOwned(uint256 tokenId) internal view returns (address) {
-    //     eaddress owner = _ownerOf(tokenId);
-    //     return owner;
-    // }
-
     function findOperatorApproval(eaddress owner, address operator) internal virtual returns (ebool, ebool) {
         ebool success = FHE.asEbool(false);
         ebool result = FHE.asEbool(false);
@@ -617,7 +559,7 @@ contract ERC721Confidential is Context, ERC165, IERC721Errors, ZamaEthereumConfi
         return (success, result);
     }
 
-    function findBalance(eaddress owner) internal virtual returns (euint128, ebool) {
+    function findBalance(eaddress owner) internal virtual returns (euint128) {
         ebool success = FHE.asEbool(false);
         euint128 bal = FHE.asEuint128(0);
 
@@ -630,7 +572,7 @@ contract ERC721Confidential is Context, ERC165, IERC721Errors, ZamaEthereumConfi
         // Authorize this contract!
         FHE.allowThis(bal);
 
-        return (bal, success);
+        return bal;
     }
 
     function addBalance(eaddress owner, euint128 delta) internal virtual returns (ebool) {

@@ -26,17 +26,17 @@ library FHEUtils {
     /**
      * @dev Emitted when `tokenId` token is transferred from `from` to `to`.
      */
-    event ObliviousTransfer(eaddress indexed from, eaddress indexed to, uint256 indexed tokenId);
+    event ObliviousTransfer(eaddress from, eaddress to, euint256 tokenId);
 
     /**
      * @dev Emitted when `owner` enables `approved` to manage the `tokenId` token.
      */
-    event ObliviousApproval(eaddress indexed owner, eaddress indexed approved, uint256 indexed tokenId);
+    event ObliviousApproval(eaddress owner, eaddress approved, uint256 indexed tokenId);
 
     /**
      * @dev Emitted when `owner` enables or disables (`approved`) `operator` to manage all of its assets.
      */
-    event ObliviousApprovalForAll(eaddress indexed owner, address indexed operator, ebool approved);
+    event ObliviousApprovalForAll(eaddress owner, address operator, ebool approved);
 
     /**
      * @dev emitted right before the top-level stack frame returns and the transaction ends. A way to notify the caller of an oblivious error.
