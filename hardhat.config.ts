@@ -14,9 +14,11 @@ import "./tasks/FHECounter";
 
 // Run 'npx hardhat vars setup' to see the list of variables that need to be set
 
-const MNEMONIC: string = vars.get("MNEMONIC", process.env.SEPOLIA_MNEMONIC);
-const INFURA_API_KEY: string = vars.get("INFURA_API_KEY", process.env.INFURA_API_KEY);
-const ETHERSCAN_API_KEY: string = vars.get("ETHERSCAN_API_KEY", process.env.ETHERSCAN_API_KEY);
+const MNEMONIC: string = process.env.SEPOLIA_MNEMONIC ?? (vars.has("MNEMONIC") ? vars.get("MNEMONIC") : "");
+const INFURA_API_KEY: string =
+  process.env.INFURA_API_KEY ?? (vars.has("INFURA_API_KEY") ? vars.get("INFURA_API_KEY") : "");
+const ETHERSCAN_API_KEY: string =
+  process.env.ETHERSCAN_API_KEY ?? (vars.has("ETHERSCAN_API_KEY") ? vars.get("ETHERSCAN_API_KEY") : "");
 //console.log("ETHERSCAN_API_KEY", ETHERSCAN_API_KEY);
 
 const config: HardhatUserConfig = {

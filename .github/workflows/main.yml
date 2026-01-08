@@ -31,7 +31,7 @@ jobs:
       - run: npm run coverage
   #
   deploy-and-test-sepolia:
-    name: Deploy to Sepolia
+    name: Deploy & Test on Sepolia
     runs-on: ubuntu-latest
     needs: build-and-test-local
     if: success()
