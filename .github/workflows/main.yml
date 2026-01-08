@@ -12,6 +12,11 @@ jobs:
   # Compile, build and test locally with mocked hardhat tasks
   build-and-test-local:
     runs-on: ubuntu-latest
+
+    env:
+      SEPOLIA_MNEMONIC: ${{ secrets.SEPOLIA_MNEMONIC }}
+      INFURA_API_KEY: ${{ secrets.INFURA_API_KEY }}
+
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
