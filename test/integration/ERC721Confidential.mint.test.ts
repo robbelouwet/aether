@@ -1,16 +1,19 @@
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { ethers, fhevm, deployments } from "hardhat";
-import { ERC721Confidential, ERC721Confidential__factory } from "../types";
-import { ClearValueType, createInstance, FhevmInstance, SepoliaConfig } from "@zama-fhe/relayer-sdk/node";
+import { ERC721Confidential, ERC721Confidential__factory } from "../../types";
 import { expect } from "chai";
-import { FhevmType } from "@fhevm/hardhat-plugin";
-import { AddressLike, Contract, ContractTransactionReceipt } from "ethers";
-import { TypedContractMethod } from "../types/common";
+import { printBalance, successWithResult } from "../ERC721Confidential.utils.test";
+
+let signers: Signers;
+let erc721Contract: ERC721Confidential;
+let erc721ContractAddress: string;
+let tokenId: bigint = ethers.toBigInt(ethers.randomBytes(32));
 
 type Signers = {
   deployer: HardhatEthersSigner;
   alice: HardhatEthersSigner;
   bob: HardhatEthersSigner;
+  eve: HardhatEthersSigner;
 };
 
 async function deployFixture() {
@@ -21,25 +24,31 @@ async function deployFixture() {
   return { erc721Contract, erc721ContractAddress };
 }
 
-describe("Mint for Alice and transfer to Bob", function () {
-  let signers: Signers;
-  let erc721Contract: ERC721Confidential;
-  let erc721ContractAddress: string;
-  let tokenId: bigint = ethers.toBigInt(ethers.randomBytes(32));
-
+describe("Mint for Alice", function () {
   before(async function () {
     if (!fhevm.isMock) {
-      const ERC721Confidential = await deployments.get("ERC721Confidential");
-      erc721ContractAddress = ERC721Confidential.address;
-      erc721Contract = await ethers.getContractAt("ERC721Confidential", ERC721Confidential.address);
-
       const ethSigners: HardhatEthersSigner[] = await ethers.getSigners();
-      signers = { deployer: ethSigners[0], alice: ethSigners[1], bob: ethSigners[2] };
+      signers = { deployer: ethSigners[0], alice: ethSigners[1], bob: ethSigners[2], eve: ethSigners[3] };
+
+      const deployment = await deployments.deploy("ERC721Confidential", {
+        from: signers.deployer.address,
+        args: ["Aether", "AETH"],
+        log: true,
+        skipIfAlreadyDeployed: false,
+      });
+
+      erc721ContractAddress = deployment.address;
+      erc721Contract = await ethers.getContractAt("ERC721Confidential", deployment.address, signers.deployer);
+
+      console.log("Contract at: ", erc721ContractAddress);
+      // const ERC721Confidential = await deployments.get("ERC721Confidential");
+      // erc721ContractAddress = ERC721Confidential.address;
+      // erc721Contract = await ethers.getContractAt("ERC721Confidential", ERC721Confidential.address);
     } else {
       ({ erc721Contract, erc721ContractAddress } = await deployFixture());
 
       const ethSigners: HardhatEthersSigner[] = await ethers.getSigners();
-      signers = { deployer: ethSigners[0], alice: ethSigners[1], bob: ethSigners[2] };
+      signers = { deployer: ethSigners[0], alice: ethSigners[1], bob: ethSigners[2], eve: ethSigners[3] };
     }
 
     await printBalance(signers.deployer, "Deployer");
@@ -86,7 +95,9 @@ describe("Mint for Alice and transfer to Bob", function () {
       [(pt) => expect(pt).to.eq(1)],
     );
   });
+});
 
+describe("Transfer from Alice => Bob", async function () {
   it("Transfer Alice => Bob", async function () {
     // Call the method, fetch the error, and assert the error is an all-zero bitarray
     // Also fetch a "ObliviousTransfer" event from the receipt, and evaluate its values using the callables
@@ -132,104 +143,20 @@ describe("Mint for Alice and transfer to Bob", function () {
   });
 });
 
-async function successWithResult(
-  caller: HardhatEthersSigner,
-  contract: ERC721Confidential,
-  method: () => Promise<any>,
-  resultEvent: string | null,
-  checkers: ((pt: ClearValueType) => Chai.Assertion)[] | null,
-) {
-  const tx = await method();
-  const receipt = await tx.wait();
-
-  const error = extractEvent("ObliviousError", contract, receipt);
-  expect(error).to.be.not.undefined;
-  expect(error![0]).to.be.not.undefined;
-
-  if (resultEvent !== null) {
-    const contractCallResult = extractEvent(resultEvent, contract, receipt);
-    expect(contractCallResult).to.be.not.undefined;
-
-    if (!fhevm.isMock) {
-      for (let i = 0; i < contractCallResult!.length; i++) {
-        const ptResult = await userDecrypt(
-          contractCallResult![i],
-          await contract.getAddress(),
-          caller,
-          await createInstance(SepoliaConfig),
-        );
-        checkers![i](ptResult);
-      }
-    }
-  }
-
-  if (!fhevm.isMock) {
-    const ptError = await userDecrypt(
-      error![0],
-      await contract.getAddress(),
-      caller,
-      await createInstance(SepoliaConfig),
+describe("Approve Eve for Bob's token", async function () {
+  it("Approve Eve", async function () {
+    // Call the method, fetch the error, and assert the error is an all-zero bitarray
+    // Also fetch a "BalanceResult" event from the receipt, and evaluate its value using the callables
+    await successWithResult(
+      signers.bob,
+      erc721Contract,
+      () => erc721Contract.connect(signers.bob).setApprovalForAll(signers.eve.address, true),
+      "ObliviousApprovalForAll",
+      [
+        (pt) => expect(pt).to.eq(signers.bob.address),
+        null, // is a plaintext address, we don't want to decrypt
+        null, //(pt) => expect(pt).to.be.true,
+      ],
     );
-    expect(ptError, `An oblivious error was raised! Error bit mask: ${ptError}`).to.eq(0);
-  }
-}
-
-function extractEvent(name: string, contract: ERC721Confidential, receipt: ContractTransactionReceipt | null) {
-  const event = receipt?.logs
-    .map((log) => {
-      try {
-        return contract.interface.parseLog(log);
-      } catch {
-        return null;
-      }
-    })
-    .find((e) => {
-      // console.log("Found event: ", e?.name);
-      return e?.name === name;
-    });
-
-  return event?.args;
-}
-
-async function userDecrypt(ct: any, erc721ContractAddress: string, user: HardhatEthersSigner, instance: FhevmInstance) {
-  const keypair = instance.generateKeypair();
-
-  const handleContractPairs = [
-    {
-      handle: ct,
-      contractAddress: erc721ContractAddress,
-    },
-  ];
-
-  const startTimeStamp = Math.floor(Date.now() / 1000).toString();
-  const durationDays = "10"; // String for consistency
-  const contractAddresses = [erc721ContractAddress];
-
-  const eip712 = instance.createEIP712(keypair.publicKey, contractAddresses, startTimeStamp, durationDays);
-
-  const signature = await user.signTypedData(
-    eip712.domain,
-    {
-      UserDecryptRequestVerification: eip712.types.UserDecryptRequestVerification,
-    },
-    eip712.message,
-  );
-
-  const result = await instance.userDecrypt(
-    handleContractPairs,
-    keypair.privateKey,
-    keypair.publicKey,
-    signature.replace("0x", ""),
-    contractAddresses,
-    user.address,
-    startTimeStamp,
-    durationDays,
-  );
-
-  return result[ct];
-}
-
-async function printBalance(signer: HardhatEthersSigner, name: string) {
-  let ethBalance = ethers.formatEther(await ethers.provider.getBalance(signer.address));
-  console.log(`Balance of ${name} (${await signer.getAddress()}): ${ethBalance}`);
-}
+  });
+});

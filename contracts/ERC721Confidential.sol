@@ -128,8 +128,8 @@ contract ERC721Confidential is Context, ERC165, IERC721Errors, ZamaEthereumConfi
         return _getApproved(tokenId);
     }
 
-    function setApprovalForAll(address operator, ebool approved) public virtual resetErrors {
-        _setApprovalForAll(FHE.asEaddress(_msgSender()), operator, approved);
+    function setApprovalForAll(address operator, bool approved) public virtual resetErrors {
+        _setApprovalForAll(FHE.asEaddress(_msgSender()), operator, FHE.asEbool(approved));
         emit FHEUtils.ObliviousError(getError());
     }
 
@@ -535,13 +535,44 @@ contract ERC721Confidential is Context, ERC165, IERC721Errors, ZamaEthereumConfi
      * Emits an {ApprovalForAll} event.
      */
     function _setApprovalForAll(eaddress owner, address operator, ebool approved) internal virtual {
-        for (uint256 i = 0; i < _approvalsCounter; i++) {
-            _operatorApprovals[i][operator] = FHE.select(
-                FHE.eq(_approvalOwners[i], owner),
-                approved,
-                _operatorApprovals[i][operator]
-            );
+        // Ensure at least 1 owner has granted an approval
+        if (_approvalsCounter == 0) {
+            _approvalOwners[_approvalsCounter] = enulladdr;
+            _approvalsCounter += 1;
         }
+
+        // Ensure last slot is empty
+        eaddress last = _approvalOwners[_approvalsCounter - 1];
+        if (FHE.isInitialized(last)) {
+            _approvalOwners[_approvalsCounter] = enulladdr;
+            _approvalsCounter += 1;
+        }
+
+        // Main logic
+        ebool success = FHE.asEbool(false);
+        for (uint256 i = 0; i < _approvalsCounter; i++) {
+            ebool resultFound = FHE.eq(_approvalOwners[i], owner);
+            success = FHE.or(success, resultFound);
+            _operatorApprovals[i][operator] = FHE.select(resultFound, approved, _operatorApprovals[i][operator]);
+
+            // We might've obliviously updated an approval, so authorize again!
+            FHE.allowThis(_operatorApprovals[i][operator]);
+            FHE.allow(_operatorApprovals[i][operator], _msgSender());
+        }
+
+        // We might *not* have obliviously updated an approver if it didn't exist, so occupy the last empty slot
+        _approvalOwners[_approvalsCounter - 1] = FHE.select(success, _approvalOwners[_approvalsCounter - 1], owner);
+        _operatorApprovals[_approvalsCounter - 1][operator] = FHE.select(
+            success,
+            _operatorApprovals[_approvalsCounter - 1][operator],
+            approved
+        );
+
+        // We might've obliviously updated the last owner and approval in _approvalOwners and _operatorApprovals, so authorize again!
+        FHE.allowThis(_approvalOwners[_approvalsCounter - 1]);
+        FHE.allowThis(_operatorApprovals[_approvalsCounter - 1][operator]);
+        FHE.allow(_operatorApprovals[_approvalsCounter - 1][operator], _msgSender());
+        FHE.allow(owner, _msgSender());
 
         emit FHEUtils.ObliviousApprovalForAll(owner, operator, approved);
     }
