@@ -3,7 +3,14 @@ import { ethers, fhevm } from "hardhat";
 import { ERC721Confidential } from "../types";
 import { ClearValueType, createInstance, FhevmInstance, SepoliaConfig } from "@zama-fhe/relayer-sdk/node";
 import { expect } from "chai";
-import { ContractTransactionReceipt } from "ethers";
+import { AddressLike, ContractTransactionReceipt } from "ethers";
+
+export type Signers = {
+  deployer: HardhatEthersSigner;
+  alice: HardhatEthersSigner;
+  bob: HardhatEthersSigner;
+  eve: HardhatEthersSigner;
+};
 
 export async function successWithResult(
   caller: HardhatEthersSigner,
@@ -19,8 +26,10 @@ export async function successWithResult(
   expect(error, "Error was undefined!").to.be.not.undefined;
   expect(error![0]).to.be.not.undefined;
 
+  let contractCallResult = null;
+
   if (resultEvent !== null) {
-    const contractCallResult = extractEvent(resultEvent, contract, receipt);
+    contractCallResult = extractEvent(resultEvent, contract, receipt);
     expect(contractCallResult, "Result event was not emitted or did not emit any value!").to.be.not.undefined;
 
     if (!fhevm.isMock) {
@@ -46,6 +55,8 @@ export async function successWithResult(
     );
     expect(ptError, `An oblivious error was raised! Error bit mask: ${ptError}`).to.eq(0);
   }
+
+  return contractCallResult;
 }
 
 export function extractEvent(name: string, contract: ERC721Confidential, receipt: ContractTransactionReceipt | null) {
@@ -111,4 +122,12 @@ export async function userDecrypt(
 export async function printBalance(signer: HardhatEthersSigner, name: string) {
   let ethBalance = ethers.formatEther(await ethers.provider.getBalance(signer.address));
   console.log(`Balance of ${name} (${await signer.getAddress()}): ${ethBalance}`);
+}
+
+export function addressToName(addr: any, signers: Signers) {
+  for (const [name, signer] of Object.entries(signers)) {
+    if (signer.address.toLowerCase() === String(addr).toLowerCase()) {
+      return name;
+    }
+  }
 }

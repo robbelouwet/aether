@@ -31,7 +31,7 @@ library FHEUtils {
     /**
      * @dev Emitted when `owner` enables `approved` to manage the `tokenId` token.
      */
-    event ObliviousApproval(eaddress owner, eaddress approved, uint256 indexed tokenId);
+    event ObliviousApproval(eaddress owner, address approved, uint256 indexed tokenId);
 
     /**
      * @dev Emitted when `owner` enables or disables (`approved`) `operator` to manage all of its assets.
@@ -44,6 +44,8 @@ library FHEUtils {
     event ObliviousError(euint256 error);
 
     event BalanceResult(euint128 balance);
+
+    event OwnerResult(eaddress owner);
 
     // Confidential AND plaintext checks
     function isNull(eaddress a) internal returns (ebool) {
